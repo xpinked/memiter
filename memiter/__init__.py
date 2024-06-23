@@ -6,8 +6,9 @@ Author: Udi Shalev <azsd91@gmail.com>
 Version: 0.1.0
 """
 
+from copy import deepcopy
 from itertools import islice
-from typing import Generic, Iterable, TypeVar
+from typing import Callable, Generic, Iterable, TypeVar
 
 T = TypeVar("T")
 
@@ -62,19 +63,12 @@ class memiter(Generic[T]):  # noqa: N801
 
         self._page = 1
         self._limit: int | None = None
+        self._first_iteration = True
+        self._generator_copy = iter(iterable)
 
         self.data: list[T] = []
         self.original_iterable = iterable
-        self.generator = iter(iterable)
-
-        self._reset_generator()
-
-    def _reset_generator(self) -> None:
-        """Reset the generator according to the current limit and page."""
-        start = (self._page - 1) * self._limit if self._limit is not None else 0
-        stop = start + self._limit if self._limit is not None else None
-        self.generator = islice(self.original_iterable, start, stop)
-        self.data = []
+        self.generator = self._generator_copy
 
     def __iter__(self) -> "memiter[T]":
         """Return the generator itself."""
@@ -82,24 +76,63 @@ class memiter(Generic[T]):  # noqa: N801
 
     def __next__(self) -> T:
         """Return the next value from the generator."""
-        value = next(self.generator)
-        self.data.append(value)
+        if self._first_iteration:
+            self._add_pagination(self.generator)
+            self._generator_copy = deepcopy(self.generator)
+            self._first_iteration = False
+
+        try:
+            value = next(self.generator)
+            self.data.append(value)
+        except StopIteration:
+            self.generator = self._generator_copy
+            self._first_iteration = True
+            raise
+
         return value
+
+    def _add_pagination(self, iterable: Iterable[T]) -> None:
+        """Reset the generator according to the current limit and page."""
+        start = (self._page - 1) * self._limit if self._limit is not None else 0
+        stop = start + self._limit if self._limit is not None else None
+        self.generator = islice(iterable, start, stop)
+
+    def _reset_from_copy(self) -> None:
+        """Reset the generator from the copy."""
+        self.generator = self._generator_copy
+        self._first_iteration = True
+
+    ## Altering Methods
+    def reset(self) -> "memiter[T]":
+        """Reset the generator to the original iterable."""
+        self._page = 1
+        self._limit = None
+        self._first_iteration = True
+        self.generator = iter(self.original_iterable)
+        self._add_pagination(self.original_iterable)
+        self.data.clear()
+        return self
 
     def limit(self, n: int) -> "memiter[T]":
         """Limit the number of elements that are generated.
 
         ### Note:
         ----
-        Resets the generator data.
 
-        For example:
+        - Resets the previous generator data.
+        - `self`.data will hold the last data that was generated.
+
+        ### Example:
+        ----
+
+        Usage of the limit method.
 
         >>> from memiter import memiter
         >>> my_gen = memiter(range(100))
         >>> _ = list(my_gen.limit(5))
         >>> my_gen.data
         [0, 1, 2, 3, 4]
+
         >>> _ = list(my_gen.limit(3))
         >>> my_gen.data
         [0, 1, 2]
@@ -113,11 +146,11 @@ class memiter(Generic[T]):  # noqa: N801
             memiter[T]: The current memiter instance.
 
         """
-        assert isinstance(n, int), "Page number must be an integer."
-        assert n > 0, "Page number must be greater than 0."
+        assert isinstance(n, int), "number must be an integer."
+        assert n > 0, "number must be greater than 0."
 
         self._limit = n
-        self._reset_generator()
+        self.data.clear()
         return self
 
     def page(self, n: int) -> "memiter[T]":
@@ -125,9 +158,10 @@ class memiter(Generic[T]):  # noqa: N801
 
         ### Note:
         ----
-        Resets the generator data.
+        - Resets the previous generator data.
+        - `self`.data will hold the last data that was generated.
 
-        For example:
+        ### Example:
 
         >>> from memiter import memiter
         >>> my_gen = memiter(range(10))
@@ -147,9 +181,188 @@ class memiter(Generic[T]):  # noqa: N801
             memiter[T]: The current memiter instance.
 
         """
-        assert isinstance(n, int), "Page number must be an integer."
-        assert n > 0, "Page number must be greater than 0."
+        assert isinstance(n, int), "number must be an integer."
+        assert n > 0, "number must be greater than 0."
 
         self._page = n
-        self._reset_generator()
+        self.data.clear()
         return self
+
+    def filter(self, func: Callable[[T], bool] = lambda x: True) -> "memiter[T]":  # noqa: ARG005
+        """Filter the elements that are generated.
+
+        ### Note:
+        ----
+        - Resets the previous generator data.
+        - `self`.data will hold the last data that was generated.
+
+        ### Example:
+        ----
+
+        - Filter the even numbers from the generator.
+
+        >>> from memiter import memiter
+        >>> my_gen = memiter(range(10))
+        >>> _ = list(my_gen.filter(lambda x: x % 2 == 0))
+        >>> my_gen.data
+        [0, 2, 4, 6, 8]
+
+        ### Args:
+        ----
+            func (Callable[[T], bool]): The function to filter the elements.
+
+        ### Returns:
+        -------
+            memiter[T]: The current memiter instance.
+
+        """
+        assert callable(func), "func must be a callable."
+
+        self.generator = filter(func, self.generator)
+        return self
+
+    def map(self, func: Callable[[T], T] = lambda x: x) -> "memiter[T]":
+        """Map the elements that are generated.
+
+        ### Example:
+        ----
+
+        - Multiply each element by 2.
+
+        >>> from memiter import memiter
+        >>> my_gen = memiter(range(10))
+        >>> _ = list(my_gen.map(lambda x: x * 2))
+        >>> my_gen.data
+        [0, 2, 4, 6, 8, 10, 12, 14, 16, 18]
+
+        ### Args:
+        ----
+            func (Callable[[T], T]): The function to map the elements.
+
+        ### Returns:
+        -------
+            memiter[T]: The current memiter instance.
+
+        """
+        assert callable(func), "func must be a callable."
+
+        self.generator = map(func, self.generator)
+        self._is_altered = True
+        return self
+
+    def order_by(self, func: Callable[[T], T] = lambda x: x, is_reversed: bool = False) -> "memiter[T]":  # noqa: FBT002
+        """Order the elements that are generated.
+
+
+        ### Note:
+        ----
+
+        - Resets the previous generator data.
+        - `self`.data will hold the last data that was generated.
+        - Consumes to the end of the generator.
+
+        ### Example:
+        ----
+
+        - Order the elements in descending order.
+
+        >>> from memiter import memiter
+        >>> my_gen = memiter(range(10))
+        >>> _ = list(my_gen.order_by(lambda x: -x))
+        >>> my_gen.data
+        [9, 8, 7, 6, 5, 4, 3, 2, 1, 0]
+
+        ### Args:
+        ----
+            func (Callable[[T], T]): The function to order the elements.
+
+        ### Returns:
+        -------
+            memiter[T]: The current memiter instance.
+
+        """
+        assert callable(func), "func must be a callable."
+
+        self.data.clear()
+
+        for _ in self:
+            continue
+
+        self.generator = iter(sorted(self.data, key=func, reverse=is_reversed))  # type: ignore [arg-type]
+        self._is_altered = True
+
+        return self
+
+    ## Access Methods
+    def first(self) -> T | None:
+        """Return the first element of the generator.
+
+        ### Note:
+        ----
+
+        - Resets the generator data.
+        - `self`.data will hold the first element only.
+
+        ### Example:
+        ----
+
+        - Get the first element of the generator.
+
+        >>> from memiter import memiter
+        >>> my_gen = memiter(range(10))
+        >>> _ = list(my_gen.limit(5))
+        >>> my_gen.first()
+        0
+        >>> my_gen.data
+        [0]
+
+        ### Returns:
+        -------
+            T | None: The first element of the generator. If the generator is empty, returns None.
+
+        """
+        self.data.clear()
+
+        try:
+            first_item = next(self)
+        except StopIteration:
+            first_item = None
+
+        self._reset_from_copy()
+        return first_item
+
+    def last(self) -> T | None:
+        """Return the last element of the generator.
+
+        ### Note:
+        ----
+
+        - Resets the generator data.
+        - `self`.data will hold the last elements that were generated.
+
+
+        ### Example:
+        ----
+
+        - Get the last element of the generator.
+
+        >>> from memiter import memiter
+        >>> my_gen = memiter(range(10))
+        >>> _ = list(my_gen.limit(5))
+        >>> my_gen.last()
+        4
+        >>> my_gen.data
+        [0, 1, 2, 3, 4]
+
+        ### Returns:
+        -------
+            T | None: The last element of the generator. If the generator is empty, returns None.
+
+        """
+        self.data.clear()
+
+        last_item = None
+        for item in self:
+            last_item = item
+
+        return last_item
