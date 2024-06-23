@@ -119,7 +119,8 @@ class memiter(Generic[T]):  # noqa: N801
         ### Note:
         ----
 
-        - Resets the previous generator data.
+        - Resets the previous generator data. meaning it is recommended to use this method once for each memiter instance.
+        - - - if you want to limit and swap page in the generator again, wrap it to a new memiter instance.
         - `self`.data will hold the last data that was generated.
 
         ### Example:
@@ -136,6 +137,10 @@ class memiter(Generic[T]):  # noqa: N801
         >>> _ = list(my_gen.limit(3))
         >>> my_gen.data
         [0, 1, 2]
+
+        - if you want to limit and swap page in the generator again, wrap it to a new memiter instance.
+        >>> my_gen2 = memiter(my_gen).limit(2)
+        [0, 1]
 
         ### Args:
         ----
@@ -154,11 +159,13 @@ class memiter(Generic[T]):  # noqa: N801
         return self
 
     def page(self, n: int) -> "memiter[T]":
-        """Set the current page.
+        """Set the current page. (1-indexed), default page is 1.
 
         ### Note:
         ----
-        - Resets the previous generator data.
+        - Has no meaning without the limit method.
+        - Resets the previous generator data. meaning it is recommended to use this method once for each memiter instance.
+        - - if you want to limit and swap page in the generator again, wrap the memiter instance with another memiter instance.
         - `self`.data will hold the last data that was generated.
 
         ### Example:
@@ -171,6 +178,12 @@ class memiter(Generic[T]):  # noqa: N801
         >>> _ = list(my_gen.limit(2).page(2))
         >>> my_gen.data
         [2, 3]
+
+        - if you want to limit and swap page in the generator again, wrap it to a new memiter instance.
+
+        >>> my_gen2 = memiter(my_gen).limit(1).page(2)
+        >>> list(my_gen2)
+        [3]
 
         ### Args:
         ----
@@ -247,7 +260,6 @@ class memiter(Generic[T]):  # noqa: N801
         assert callable(func), "func must be a callable."
 
         self.generator = map(func, self.generator)
-        self._is_altered = True
         return self
 
     def order_by(self, func: Callable[[T], T] = lambda x: x, is_reversed: bool = False) -> "memiter[T]":  # noqa: FBT002
@@ -289,7 +301,6 @@ class memiter(Generic[T]):  # noqa: N801
             continue
 
         self.generator = iter(sorted(self.data, key=func, reverse=is_reversed))  # type: ignore [arg-type]
-        self._is_altered = True
 
         return self
 
