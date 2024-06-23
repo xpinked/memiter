@@ -262,7 +262,7 @@ class memiter(Generic[T]):  # noqa: N801
         self.generator = map(func, self.generator)
         return self
 
-    def order_by(self, func: Callable[[T], T] = lambda x: x, is_reversed: bool = False) -> "memiter[T]":  # noqa: FBT002
+    def order_by(self, func: Callable[[T], T] = lambda x: x) -> "memiter[T]":
         """Order the elements that are generated.
 
 
@@ -300,7 +300,7 @@ class memiter(Generic[T]):  # noqa: N801
         for _ in self:
             continue
 
-        self.generator = iter(sorted(self.data, key=func, reverse=is_reversed))  # type: ignore [arg-type]
+        self.generator = iter(sorted(self.data, key=func))  # type: ignore [arg-type]
 
         return self
 
