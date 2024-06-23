@@ -77,8 +77,8 @@ class memiter(Generic[T]):  # noqa: N801
     def __next__(self) -> T:
         """Return the next value from the generator."""
         if self._first_iteration:
-            self._add_pagination(self.generator)
             self._generator_copy = deepcopy(self.generator)
+            self._add_pagination(self.generator)
             self._first_iteration = False
 
         try:
