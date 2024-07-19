@@ -1,6 +1,6 @@
 [tool.poetry]
 name = "memiter"
-version = "0.1.1"
+version = "0.2.0"
 description = "A generator that extends the functionality of a generator. simplifying pagination and data access."
 authors = ["Udi Shalev <azsd91@gmail.com>"]
 homepage = "https://github.com/xpinked/memiter"
